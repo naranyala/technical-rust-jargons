@@ -1223,328 +1223,448 @@ This is common and idiomatic in Rust.
 
 ---
 
-## Advanced Rust jargon and concepts
+## Jargon combinations: how the pieces fit together
 
-This section is for the next layer beyond beginner Rust.
+Rust is not a collection of isolated terms. The real power is in how these concepts compose. These are the common “combo patterns” you will see in real code and in code review conversations.
 
-### `Fn`, `FnMut`, and `FnOnce`
+### 1. Ownership + move semantics + Copy + Clone
 
-These are the closure traits:
-
-- `FnOnce` — callable once
-- `FnMut` — callable repeatedly with mutable capture
-- `Fn` — callable repeatedly with immutable capture
-
-These are fundamental when using closures as arguments.
+This is the classic value-lifecycle pair.
 
 ```rust
-fn apply<F: FnOnce()>(f: F) {
-    f();
+let s1 = String::from("hello");
+let s2 = s1; // move
+// s1 cannot be used again
+
+let a = 42;
+let b = a; // Copy, not move
+println!("{} {}", a, b);
+
+let s3 = String::from("rust");
+let s4 = s3.clone(); // explicit duplication
+println!("{} {}", s3, s4);
+```
+
+Interpretation:
+
+- `String` is moved by default
+- integers are `Copy`
+- `Clone` is explicit duplication when move semantics are not enough
+
+This combination explains why people say “Rust is explicit about data movement.”
+
+### 2. Borrowing + mutability + aliasing
+
+This is the safety triangle of Rust.
+
+```rust
+let mut v = vec![1, 2, 3];
+let r1 = &v;        // immutable borrow
+let r2 = &v;        // another immutable borrow
+println!("{:?} {:?}", r1, r2);
+
+let r3 = &mut v;   // mutable borrow
+// r1 and r2 cannot be used while r3 is alive
+```
+
+Interpretation:
+
+- many immutable borrows are allowed
+- mutable access is exclusive
+- aliasing is safe only under narrow rules
+
+This is the reason Rust can avoid a GC while still being memory-safe.
+
+### 3. Ownership + borrowing + lifetime
+
+This is the canonical Rust combination that shows how a function is verified.
+
+```rust
+fn choose_longer<'a>(x: &'a str, y: &'a str) -> &'a str {
+    if x.len() > y.len() { x } else { y }
 }
 ```
 
-### `Iterator`, `IntoIterator`, and `FromIterator`
+Interpretation:
 
-These traits form the ecosystem of collection iteration and collection creation.
+- both inputs are borrowed
+- the return value borrows from one of them
+- the compiler proves the returned reference remains valid long enough
 
-- `Iterator` produces values one at a time
-- `IntoIterator` means a type can be iterated by value
-- `FromIterator` creates a collection from an iterator
+This is one of the most important “Rust thinking” patterns: a reference is only valid if its lifetime is protected by the compiler.
 
-### `Deref` and `DerefMut`
+### 4. Trait + generic + trait bound
 
-These enable smart pointer-like behavior by allowing implicit dereferencing.
-
-```rust
-use std::ops::Deref;
-```
-
-Very common in pointer wrappers and string-like types.
-
-### `Borrow`, `ToOwned`
-
-These traits support generic conversion between borrowed and owned forms.
-
-### `TryFrom` and `TryInto`
-
-Like `From` and `Into`, but fallible.
+This combination expresses reusable behavior while keeping safety and compile-time checks.
 
 ```rust
-let x: Result<i32, _> = "42".parse();
-```
-
-### `trait object safety`
-
-A trait is object-safe if it can be used as a `dyn Trait` trait object. This requires methods not returning `Self` and no generic methods.
-
-### `blanket impl`
-
-A generic implementation that covers many possible types.
-
-This is a standard pattern in trait-based APIs.
-
-### `autoderef` and autoref
-
-Rust automatically dereferences and references values in method calls and overloaded operator resolution.
-
-This is what makes method syntax feel ergonomic.
-
-### `const fn`
-
-A `const fn` can be called at compile time.
-
-```rust
-const fn add(a: i32, b: i32) -> i32 {
-    a + b
+fn print_debug<T: std::fmt::Debug>(value: T) {
+    println!("{:?}", value);
 }
 ```
 
-### `const generics`
+Interpretation:
 
-Const generics allow generic parameters that are integer or const values rather than types.
+- `T` is generic
+- `T: Debug` means the type must support the `Debug` trait
+- the function works with many types but restricts them by behavior
+
+This is how Rust gets flexibility without losing guarantees.
+
+### 5. Option + match + ?
+
+This is the “value may exist or may not exist” pattern, made safe and explicit.
 
 ```rust
-fn repeat<const N: usize>(value: i32) -> [i32; N] {
+fn parse_age(raw: &str) -> Option<u8> {
+    let n = raw.parse::<u8>().ok()?;
+    Some(n)
+}
+
+match parse_age("42") {
+    Some(age) => println!("age = {}", age),
+    None => println!("invalid input"),
+}
+```
+
+Interpretation:
+
+- `Option<T>` models absence
+- `match` handles both cases explicitly
+- `?` propagates a failure as early as possible
+
+This is a deeply Rust-idiomatic pattern: explicit handling of “maybe this exists?”
+
+### 6. Result + ? + custom error type
+
+This is the standard combination for production Rust code.
+
+```rust
+use std::fs;
+use std::io;
+
+fn read_config() -> Result<String, io::Error> {
+    let text = fs::read_to_string("config.toml")?;
+    Ok(text)
+}
+```
+
+Interpretation:
+
+- `Result<T, E>` encodes success/failure as data
+- `?` unwraps `Ok` and returns `Err` immediately
+- the caller decides how to handle the error
+
+This is one of the most important idioms in real Rust APIs.
+
+### 7. Trait + impl Trait + dyn Trait
+
+These are different ways of expressing behavior without committing to one concrete type.
+
+```rust
+fn combine<T: Iterator<Item = i32>>(it: T) -> i32 {
+    it.sum()
+}
+
+fn produce() -> impl Iterator<Item = i32> {
+    vec![1, 2, 3].into_iter()
+}
+
+fn print_anything(value: &dyn std::fmt::Display) {
+    println!("{}", value);
+}
+```
+
+Interpretation:
+
+- `T: Iterator` = generic and statically dispatched
+- `impl Iterator` = opaque return type
+- `dyn Trait` = runtime-dispatched trait object
+
+This is a central Rust conceptual cluster: behavior abstraction without runtime chaos.
+
+### 8. Drop + RAII + scope
+
+This is the lifecycle composition of Rust’s resource model.
+
+```rust
+struct Guard;
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        println!("cleanup");
+    }
+}
+
+fn main() {
+    let _g = Guard;
+    println!("doing work");
+}
+```
+
+Interpretation:
+
+- values acquire resources when constructed
+- cleanup happens when they go out of scope
+- this is Rust’s RAII idiom
+
+This is why Rust has a strong “resource management without explicit destructor calls” story.
+
+### 9. Thread + Send + Sync + Arc + Mutex
+
+This is the concurrency pattern most people encounter early in Rust systems work.
+
+```rust
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+let data = Arc::new(Mutex::new(0));
+let clone = Arc::clone(&data);
+
+thread::spawn(move || {
+    let mut value = clone.lock().unwrap();
+    *value += 1;
+});
+```
+
+Interpretation:
+
+- `Arc` shares ownership safely across threads
+- `Mutex` protects shared state
+- `Send` and `Sync` are the type-level guarantees that make this safe
+
+This combination is the standard mental model for multi-threaded Rust code.
+
+### 10. async + Future + await + runtime
+
+This is the asynchronous building block of modern Rust.
+
+```rust
+use tokio::time::{sleep, Duration};
+
+#[tokio::main]
+async fn main() {
+    println!("before");
+    sleep(Duration::from_millis(100)).await;
+    println!("after");
+}
+```
+
+Interpretation:
+
+- `Future` represents pending work
+- `await` yields control until it is ready
+- `runtime` schedules and polls the work
+- `Waker` wakes tasks when they are ready to continue
+
+This is the async Rust mental model: futures are lazy, and runtimes drive them.
+
+### 11. unsafe + raw pointer + FFI + repr(C)
+
+This is the low-level systems combination.
+
+```rust
+#[repr(C)]
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+extern "C" {
+    fn draw_point(p: Point);
+}
+```
+
+Interpretation:
+
+- `unsafe` is required when bypassing Rust safety rules
+- raw pointers are the low-level tool for memory manipulation
+- `repr(C)` preserves C-compatible layout
+- FFI is where these concepts meet external systems
+
+This is how Rust talks to C libraries and low-level interfaces.
+
+### 12. String + &str + Vec + slice
+
+This is a data-view combination everyone hits.
+
+```rust
+let s = String::from("hello");
+let part: &str = &s[0..3];
+let v = vec![1, 2, 3, 4];
+let arr: &[i32] = &v[1..3];
+```
+
+Interpretation:
+
+- `String` owns the buffer
+- `&str` is a borrowed string view
+- `Vec<T>` owns a dynamic array
+- `&[T]` is a borrowed slice view
+
+This combination explains why Rust APIs are often built around borrowed views rather than hidden copies.
+
+### 13. Macro + attribute + derive + proc macro
+
+This is the metaprogramming combination of the language.
+
+```rust
+#[derive(Debug, Clone, PartialEq)]
+struct User {
+    name: String,
+}
+```
+
+Interpretation:
+
+- `#[derive(...)]` is a macro-driven attribute
+- macros generate boilerplate code
+- proc macros can transform Rust syntax itself
+
+This combination is the reason many Rust APIs feel ergonomic and declarative.
+
+### 14. Option + error handling + result propagation + unwrap
+
+This is the “real world” combination of safe code and practical ergonomics.
+
+```rust
+let value = Some(5).unwrap_or(0);
+let parsed = "42".parse::<u8>().unwrap();
+```
+
+Interpretation:
+
+- `Option` and `Result` are type-level decisions
+- `unwrap` is pragmatic, but not always the best choice
+- in production code, developers prefer explicit handling via `match` or `?`
+
+This combination is not just syntax — it reflects a style of designing APIs around failure-aware semantics.
+
+### 15. Generics + traits + lifetimes + borrowing in one API
+
+This is the “advanced but common” Rust signature pattern.
+
+```rust
+fn longest<'a, T>(items: &'a [T]) -> &'a T
+where
+    T: PartialOrd,
+{
+    let mut best = &items[0];
+    for item in items.iter().skip(1) {
+        if item > best {
+            best = item;
+        }
+    }
+    best
+}
+```
+
+Interpretation:
+
+- `'a` expresses a borrow lifetime
+- `T` is a generic type
+- `T: PartialOrd` adds a trait bound
+- the function returns a borrowed element from the slice
+
+This is a very representative “Rust in one pattern” example.
+
+### 16. Result + panic! + unreachable! + assert!
+
+This is the “failure semantics” cluster.
+
+```rust
+assert!(2 + 2 == 4);
+
+fn impossible_case(x: Option<i32>) -> i32 {
+    match x {
+        Some(v) => v,
+        None => unreachable!("caller promised a value"),
+    }
+}
+```
+
+Interpretation:
+
+- `Result` is for recoverable failure
+- `panic!` and `unreachable!` are for impossible states
+- `assert!` checks invariants that should never be violated in debug/test conditions
+
+This is the difference between “expected error” and “programmer bug.”
+
+### 17. Borrowing + method syntax + receiver types
+
+This is the “how method calls encode semantics” pattern.
+
+```rust
+impl Vec<u8> {
+    fn push_byte(&mut self, value: u8) {
+        self.push(value);
+    }
+
+    fn first(&self) -> Option<&u8> {
+        self.first()
+    }
+}
+```
+
+Interpretation:
+
+- `&self` means immutable borrow
+- `&mut self` means exclusive mutable borrow
+- the method signature itself tells you how ownership is transferred or borrowed
+
+This is one of the reasons Rust method syntax feels so precise and “design-first.”
+
+### 18. Copy + generics + traits + const generics
+
+```rust
+fn repeat_copy<T: Copy, const N: usize>(value: T) -> [T; N] {
     [value; N]
 }
 ```
 
-### `specialization`
+Interpretation:
 
-An advanced trait concept whose stable support is limited in Rust. In practice, it is often avoided in stable Rust due to complexity.
+- `T: Copy` guarantees we can duplicate the value safely
+- `const N: usize` makes the array length part of the type system
+- Rust can build static-size containers without unnecessary runtime branching
 
-### `type alias`
-
-A type alias gives another name to an existing type.
-
-```rust
-type UserId = u64;
-```
-
-### `associated const`
-
-A constant associated with a trait or type.
-
-```rust
-trait Foo {
-    const BAR: i32;
-}
-```
-
-### `dyn` and object safety
-
-`dyn Trait` is not just for dynamic dispatch; it also interacts with object safety rules.
-
-### `lifetime subtyping`
-
-This is a deeper lifetime concept that describes one lifetime outliving another in a structured way.
-
-It is advanced and often shows up in trait bounds and complex APIs.
-
-### `high-ranked trait bounds` (HRTB)
-
-When a function needs to work with values that borrow for arbitrary lifetime parameters.
-
-This is a common phrase in advanced generic language design.
+This is a good example of Rust combining several concepts in one signature.
 
 ---
 
-## Advanced unsafe / systems jargon
+## The real pattern: Rust jargon is layered
 
-### `core` and `alloc`
+Rust jargon usually appears in layers:
 
-- `core` — foundational Rust library with no OS dependency
-- `alloc` — heap allocation support
-- `std` — standard library, includes OS interaction and more features
+1. low-level rule: ownership, borrowing, scope
+2. type-level expression: `Option`, `Result`, `trait`, `generic`
+3. API pattern: `Iterator`, `From`, `Into`, `Debug`, `Clone`
+4. concurrency or runtime concept: `Send`, `Sync`, `Future`, `Waker`
+5. unsafe systems concept: raw pointer, `repr(C)`, `FFI`, `MaybeUninit`
 
-These are important when discussing embedded or no-std contexts.
+These layers combine naturally. The more familiar you become with Rust, the more you start reading code as an interaction between these layers rather than as isolated words.
 
-### `no_std`
-
-A Rust project may avoid the standard library entirely for embedded or microcontroller use.
-
-### `allocator`
-
-A runtime component that allocates memory for a program. In Rust this is often abstracted and configurable.
-
-### `strict provenance`
-
-A modern memory safety concept around pointer provenance and aliasing. This is a deeper systems language topic.
-
-### `ptr::read`, `ptr::write`, and `ptr::copy_nonoverlapping`
-
-Low-level pointer functions used for memory manipulation and optimized unsafe code.
-
-### `slice::from_raw_parts`
-
-Creates a slice from raw memory without safety checks. This is an advanced unsafe pattern used in FFI and system code.
-
-### `repr(transparent)`
-
-A representation attribute ensuring a struct has the same memory layout as its single field.
-
-Useful in FFI and wrappers around primitive types.
-
-### `repr(C)`
-
-Already covered, but this is one of the most important low-level Rust concepts.
-
-### `MaybeUninit`
-
-A type designed to manage uninitialized memory safely.
+That is the heart of Rust literacy.
 
 ---
 
-## Async and runtime jargon
+## Common Rust “combo language” in practice
 
-### `poll`
+When people talk about Rust in real projects, they often combine phrases like this:
 
-The operation used to advance a future toward completion.
+- “This is an ownership and lifetime issue.”
+- “This needs a borrow or a clone; it is not a trait bound problem.”
+- “This should probably be `Result`, not `panic!`.”
+- “This type is `Send` and `Sync` so it can be shared across threads.”
+- “This `unsafe` block is small and isolated, which is the right pattern.”
+- “This API returns a borrowed slice, so the lifetime must be tied to the input.”
+- “This function likely needs a `where` clause or extra trait bound.”
+- “This is a `Future` problem, not just an async syntax problem.”
+- “This collection is better as `&[T]` than `Vec<T>` because we only need a view.”
+- “This is a `Clone`/`Copy` design choice, not a weird compiler quirk.”
 
-### `waker`
-
-Provides a way to notify a future that it should be polled again.
-
-### `executor`
-
-Runs tasks and polls futures.
-
-### `spawn`
-
-Schedules a future to run in a runtime-managed task.
-
-### `runtime`
-
-Defines the environment in which async tasks execute.
-
-### `blocking`
-
-When a task blocks the runtime thread instead of yielding.
-
-This matters for performance and runtime correctness in async systems.
-
-### `mpsc`
-
-Multiple-producer, single-consumer channels.
-
-### `oneshot`
-
-A channel used for one-off message passing.
-
-### `broadcast`
-
-A channel where many consumers receive the same value.
-
----
-
-## Macro and compiler jargon
-
-### `macro_rules!`
-
-The declarative macro system in Rust.
-
-```rust
-macro_rules! say_hello {
-    () => {
-        println!("hello");
-    };
-}
-```
-
-### Procedural macro
-
-A macro implemented in Rust code that manipulates the abstract syntax tree.
-
-Common forms:
-
-- derive macros
-- attribute macros
-- function-like macros
-
-### `quote!`
-
-A macro helper library for generating Rust syntax in proc macros.
-
-### `span`
-
-Source code span metadata used in diagnostic and macro systems.
-
-### `hygiene`
-
-Macro hygiene is about preventing name conflicts and preserving semantics across macro expansion boundaries.
-
-This is a very real and important macro concept in Rust.
-
----
-
-## Ecosystem and project jargon
-
-### crate
-
-A crate is Rust’s unit of compilation. A binary is a crate; a library is also a crate.
-
-### module
-
-A module organizes Rust code into namespaces.
-
-### `Cargo.toml`
-
-The manifest file for Rust packages, containing metadata and dependencies.
-
-### workspace
-
-A Cargo workspace allows multiple crates to be built and managed together.
-
-### edition
-
-Rust edition defines language-version compatibility conventions.
-
-Examples:
-
-- 2018
-- 2021
-- 2024
-
-### dependency resolver
-
-Cargo resolves versions and feature compatibility across the crate graph.
-
-### feature flag
-
-A crate can expose optional capability sets via feature flags.
-
-```toml
-[features]
-default = ["std"]
-std = []
-```
-
-### semver
-
-Semantic versioning controls compatibility rules for crates.
-
----
-
-## Common Rust phrases in code reviews
-
-These are phrases you will hear a lot when people talk about Rust code.
-
-- “This is a lifetime problem.”
-- “This value is moved here; you need a borrow or clone.”
-- “This should be `&str`, not `String`.”
-- “This could be simplified with `match`.”
-- “This should probably be `Result`, not `unwrap`.”
-- “This is a `Send`/`Sync` concern.”
-- “This should be behind a small `unsafe` boundary.”
-- “This API is too eager to clone; consider borrowing.”
-- “This function should probably return `Option`.”
-- “This type should implement `Default` or `From`.”
-- “This is a borrow-checker complaint, not a logic bug.”
-- “This is a trait bound issue.”
-- “This API is not object-safe.”
-- “This is a higher-ranked trait bound problem.”
-
-These phrases are part of the practical vocabulary of Rust discourse.
+This is the language of Rust practitioners: they do not talk in single keywords; they talk in systems of ideas.
 
 ---
 
