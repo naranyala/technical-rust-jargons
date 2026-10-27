@@ -221,17 +221,13 @@ This gives Rust a strong safety story without a garbage collector.
 
 Many functions do not require explicit lifetime annotations because Rust applies a shorthand rule set called lifetime elision.
 
-For example, the compiler can often infer:
-
 ```rust
 fn first_word(s: &str) -> &str {
     s.split_whitespace().next().unwrap_or("")
 }
 ```
 
-The compiler knows how to infer common patterns without you spelling out `'a` every time.
-
-This is a common Rust phrase you will hear: “Rust often elides lifetimes in simple cases.”
+The compiler can often infer common lifetime patterns without you writing `'a` everywhere.
 
 ### Static lifetime
 
@@ -242,6 +238,24 @@ let s: &'static str = "hello";
 ```
 
 This is common for string literals and global data.
+
+### Non-lexical lifetimes (NLL)
+
+Rust’s borrow checker uses non-lexical lifetimes: it does not require a variable to remain alive until the end of its scope if the compiler can prove it is no longer used earlier.
+
+This is why some Rust code becomes more ergonomic over time. It reduces unnecessary borrow restrictions.
+
+### Reborrow
+
+A reborrow happens when you borrow a reference that itself is a reference.
+
+```rust
+let mut v = vec![1, 2, 3];
+let r = &mut v;
+let r2 = &mut *r;
+```
+
+This is common in nested borrowing and method-call patterns.
 
 ---
 
@@ -480,6 +494,40 @@ It is often used in marker types and safe abstractions around raw pointers.
 
 This is a real-world Rust idiom for performance-sensitive APIs.
 
+### `Sized`
+
+`Sized` is a trait implemented for all types whose size is known at compile time.
+
+Most generic types automatically satisfy `Sized`, but `?Sized` is used for dynamically sized types like `str` and `[T]`.
+
+### `?Sized`
+
+`?Sized` means the type may not have a fixed compile-time size.
+
+```rust
+fn foo<T: ?Sized>(x: &T) {}
+```
+
+This is common when working with references to dynamically sized types.
+
+### `impl Trait`
+
+`impl Trait` is a convenient syntax for anonymous trait types in function arguments and return types.
+
+```rust
+fn iter() -> impl Iterator<Item = i32> {
+    vec![1, 2, 3].into_iter()
+}
+```
+
+This is often used to hide concrete types while preserving trait behavior.
+
+### Opaque types
+
+An opaque type is a type whose concrete form is hidden behind a trait contract.
+
+`impl Trait` is the Rust syntax for many opaque result types.
+
 ---
 
 ## Control flow and patterns
@@ -570,7 +618,30 @@ let point = (10, 20);
 let (x, y) = point;
 ```
 
-This is part of the “pattern matching as a core concept” mindset in Rust.
+### Pattern guards
+
+A match arm can have a guard condition after the pattern.
+
+```rust
+match value {
+    x if x > 10 => println!("large"),
+    _ => println!("small"),
+}
+```
+
+This is a common idiom for refining matches.
+
+### `for` loops and `into_iter`
+
+Rust’s `for` loop is built around iterators, often using `into_iter`, `iter`, or `iter_mut`.
+
+```rust
+for item in &values {
+    println!("{}", item);
+}
+```
+
+This is often more idiomatic than manually indexing.
 
 ---
 
@@ -616,6 +687,15 @@ This is one of the most common idioms in Rust.
 Rust uses them not just to represent values, but to shape APIs.
 
 This is a huge difference from languages that often use exceptions or nulls as hidden control flow.
+
+### `thiserror` and `anyhow`
+
+These are crates commonly used to simplify error modeling in Rust applications.
+
+- `thiserror` — derive error types cleanly
+- `anyhow` — ergonomic error propagation for application code
+
+This is a practical ecosystem concept many Rust developers know.
 
 ### `unsafe`
 
@@ -668,6 +748,18 @@ extern "C" {
 `#[repr(C)]` tells Rust to lay out a struct in the same way as C does.
 
 This is important for FFI and binary compatibility.
+
+### `MaybeUninit`
+
+`MaybeUninit<T>` allows data to be uninitialized temporarily before being initialized properly.
+
+This is an advanced but common low-level Rust term.
+
+### `transmute`
+
+`std::mem::transmute` reinterprets bits from one type to another.
+
+It is highly unsafe and should only be used with strong justification.
 
 ---
 
@@ -724,6 +816,12 @@ It enforces borrow rules dynamically rather than statically.
 
 This is a common Rust concept but it is not the normal path for thread-safe design.
 
+### `Cell`
+
+`Cell<T>` allows interior mutability for Copy types by replacing values through shared references.
+
+It is simple but limited, and often used for optimization or internal state patterns.
+
 ### `Future` and `await`
 
 A `Future` represents an asynchronous computation.
@@ -764,6 +862,29 @@ This matters for async state machines and self-referential data.
 Async Rust is based on a polling model. A future is polled repeatedly until it is ready.
 
 This is a key conceptual phrase in async Rust.
+
+### Waker
+
+A `Waker` is the object used to notify a task or future that it may be ready to continue polling.
+
+This is part of the low-level futures machinery.
+
+### Executor
+
+An executor runs asynchronous tasks by polling futures until they complete.
+
+### Task
+
+A task is a scheduled unit of asynchronous work, often managed by an async runtime.
+
+### Channels
+
+Rust channels let threads or async tasks send messages between each other.
+
+Typical ones include:
+
+- `std::sync::mpsc` — multiple producer, single consumer
+- `tokio::sync::mpsc` — async channel variants
 
 ---
 
@@ -814,8 +935,6 @@ These are common trait-related jargon terms.
 
 Rust functions often return values from expressions rather than imperative “procedure-like” blocks.
 
-Example:
-
 ```rust
 fn bigger(a: i32, b: i32) -> i32 {
     if a > b { a } else { b }
@@ -823,6 +942,12 @@ fn bigger(a: i32, b: i32) -> i32 {
 ```
 
 This is a frequent Rust aphorism: “Rust is expression-based.”
+
+### Borrowing and method ergonomics
+
+Rust methods often use receiver types like `&self`, `&mut self`, and `self` to communicate ownership intent clearly.
+
+This is core to Rust’s idiomatic API design.
 
 ---
 
@@ -951,11 +1076,338 @@ Used for converting owned or borrowed values into borrowed forms without consumi
 
 Rust’s strength comes from pattern matching being first-class: `if let`, `match`, `while let`, destructuring, and `let else` all work together.
 
+### `higher-ranked trait bounds` (HRTB)
+
+HRTBs are more advanced trait-bound syntax used when a generic type needs to work with references that may live for different lifetimes.
+
+This is a term you encounter in advanced Rust trait work.
+
+### `opaque type`
+
+A type whose concrete implementation is hidden behind a trait or `impl Trait`.
+
+### `coercion`
+
+Rust can coerce values in a few cases, such as unsizing or trait object conversion. This is a subtle but important part of the type system.
+
+### `shadowing`
+
+A variable can be redefined with the same name in a new scope.
+
+```rust
+let x = 5;
+let x = x + 1;
+```
+
+This is common and idiomatic in Rust.
+
 ---
 
-## Rust phrases heard in code reviews
+## Advanced Rust jargon and concepts
 
-These are common phrases in real-world Rust discussion.
+This section is for the next layer beyond beginner Rust.
+
+### `Fn`, `FnMut`, and `FnOnce`
+
+These are the closure traits:
+
+- `FnOnce` — callable once
+- `FnMut` — callable repeatedly with mutable capture
+- `Fn` — callable repeatedly with immutable capture
+
+These are fundamental when using closures as arguments.
+
+```rust
+fn apply<F: FnOnce()>(f: F) {
+    f();
+}
+```
+
+### `Iterator`, `IntoIterator`, and `FromIterator`
+
+These traits form the ecosystem of collection iteration and collection creation.
+
+- `Iterator` produces values one at a time
+- `IntoIterator` means a type can be iterated by value
+- `FromIterator` creates a collection from an iterator
+
+### `Deref` and `DerefMut`
+
+These enable smart pointer-like behavior by allowing implicit dereferencing.
+
+```rust
+use std::ops::Deref;
+```
+
+Very common in pointer wrappers and string-like types.
+
+### `Borrow`, `ToOwned`
+
+These traits support generic conversion between borrowed and owned forms.
+
+### `TryFrom` and `TryInto`
+
+Like `From` and `Into`, but fallible.
+
+```rust
+let x: Result<i32, _> = "42".parse();
+```
+
+### `trait object safety`
+
+A trait is object-safe if it can be used as a `dyn Trait` trait object. This requires methods not returning `Self` and no generic methods.
+
+### `blanket impl`
+
+A generic implementation that covers many possible types.
+
+This is a standard pattern in trait-based APIs.
+
+### `autoderef` and autoref
+
+Rust automatically dereferences and references values in method calls and overloaded operator resolution.
+
+This is what makes method syntax feel ergonomic.
+
+### `const fn`
+
+A `const fn` can be called at compile time.
+
+```rust
+const fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+```
+
+### `const generics`
+
+Const generics allow generic parameters that are integer or const values rather than types.
+
+```rust
+fn repeat<const N: usize>(value: i32) -> [i32; N] {
+    [value; N]
+}
+```
+
+### `specialization`
+
+An advanced trait concept whose stable support is limited in Rust. In practice, it is often avoided in stable Rust due to complexity.
+
+### `type alias`
+
+A type alias gives another name to an existing type.
+
+```rust
+type UserId = u64;
+```
+
+### `associated const`
+
+A constant associated with a trait or type.
+
+```rust
+trait Foo {
+    const BAR: i32;
+}
+```
+
+### `dyn` and object safety
+
+`dyn Trait` is not just for dynamic dispatch; it also interacts with object safety rules.
+
+### `lifetime subtyping`
+
+This is a deeper lifetime concept that describes one lifetime outliving another in a structured way.
+
+It is advanced and often shows up in trait bounds and complex APIs.
+
+### `high-ranked trait bounds` (HRTB)
+
+When a function needs to work with values that borrow for arbitrary lifetime parameters.
+
+This is a common phrase in advanced generic language design.
+
+---
+
+## Advanced unsafe / systems jargon
+
+### `core` and `alloc`
+
+- `core` — foundational Rust library with no OS dependency
+- `alloc` — heap allocation support
+- `std` — standard library, includes OS interaction and more features
+
+These are important when discussing embedded or no-std contexts.
+
+### `no_std`
+
+A Rust project may avoid the standard library entirely for embedded or microcontroller use.
+
+### `allocator`
+
+A runtime component that allocates memory for a program. In Rust this is often abstracted and configurable.
+
+### `strict provenance`
+
+A modern memory safety concept around pointer provenance and aliasing. This is a deeper systems language topic.
+
+### `ptr::read`, `ptr::write`, and `ptr::copy_nonoverlapping`
+
+Low-level pointer functions used for memory manipulation and optimized unsafe code.
+
+### `slice::from_raw_parts`
+
+Creates a slice from raw memory without safety checks. This is an advanced unsafe pattern used in FFI and system code.
+
+### `repr(transparent)`
+
+A representation attribute ensuring a struct has the same memory layout as its single field.
+
+Useful in FFI and wrappers around primitive types.
+
+### `repr(C)`
+
+Already covered, but this is one of the most important low-level Rust concepts.
+
+### `MaybeUninit`
+
+A type designed to manage uninitialized memory safely.
+
+---
+
+## Async and runtime jargon
+
+### `poll`
+
+The operation used to advance a future toward completion.
+
+### `waker`
+
+Provides a way to notify a future that it should be polled again.
+
+### `executor`
+
+Runs tasks and polls futures.
+
+### `spawn`
+
+Schedules a future to run in a runtime-managed task.
+
+### `runtime`
+
+Defines the environment in which async tasks execute.
+
+### `blocking`
+
+When a task blocks the runtime thread instead of yielding.
+
+This matters for performance and runtime correctness in async systems.
+
+### `mpsc`
+
+Multiple-producer, single-consumer channels.
+
+### `oneshot`
+
+A channel used for one-off message passing.
+
+### `broadcast`
+
+A channel where many consumers receive the same value.
+
+---
+
+## Macro and compiler jargon
+
+### `macro_rules!`
+
+The declarative macro system in Rust.
+
+```rust
+macro_rules! say_hello {
+    () => {
+        println!("hello");
+    };
+}
+```
+
+### Procedural macro
+
+A macro implemented in Rust code that manipulates the abstract syntax tree.
+
+Common forms:
+
+- derive macros
+- attribute macros
+- function-like macros
+
+### `quote!`
+
+A macro helper library for generating Rust syntax in proc macros.
+
+### `span`
+
+Source code span metadata used in diagnostic and macro systems.
+
+### `hygiene`
+
+Macro hygiene is about preventing name conflicts and preserving semantics across macro expansion boundaries.
+
+This is a very real and important macro concept in Rust.
+
+---
+
+## Ecosystem and project jargon
+
+### crate
+
+A crate is Rust’s unit of compilation. A binary is a crate; a library is also a crate.
+
+### module
+
+A module organizes Rust code into namespaces.
+
+### `Cargo.toml`
+
+The manifest file for Rust packages, containing metadata and dependencies.
+
+### workspace
+
+A Cargo workspace allows multiple crates to be built and managed together.
+
+### edition
+
+Rust edition defines language-version compatibility conventions.
+
+Examples:
+
+- 2018
+- 2021
+- 2024
+
+### dependency resolver
+
+Cargo resolves versions and feature compatibility across the crate graph.
+
+### feature flag
+
+A crate can expose optional capability sets via feature flags.
+
+```toml
+[features]
+default = ["std"]
+std = []
+```
+
+### semver
+
+Semantic versioning controls compatibility rules for crates.
+
+---
+
+## Common Rust phrases in code reviews
+
+These are phrases you will hear a lot when people talk about Rust code.
 
 - “This is a lifetime problem.”
 - “This value is moved here; you need a borrow or clone.”
@@ -965,11 +1417,42 @@ These are common phrases in real-world Rust discussion.
 - “This is a `Send`/`Sync` concern.”
 - “This should be behind a small `unsafe` boundary.”
 - “This API is too eager to clone; consider borrowing.”
+- “This function should probably return `Option`.”
 - “This type should implement `Default` or `From`.”
-- “This function should return `Option` or `Result`, not `panic!`.”
-- “This is a borrow-checker complaint, not a logic issue.”
+- “This is a borrow-checker complaint, not a logic bug.”
+- “This is a trait bound issue.”
+- “This API is not object-safe.”
+- “This is a higher-ranked trait bound problem.”
 
-These phrases are part of the language of Rust communication.
+These phrases are part of the practical vocabulary of Rust discourse.
+
+---
+
+## Quick cheat-sheet table
+
+| Term | Meaning |
+| --- | --- |
+| Ownership | Single owner for a value |
+| Borrowing | Temporary access without transfer |
+| Lifetime | How long a reference is valid |
+| Move | Ownership transfer |
+| Copy | Cheap duplication |
+| Clone | Explicit duplication |
+| Drop | Cleanup on scope end |
+| Trait | Shared behavior contract |
+| Generic | Type or function parameterized by type |
+| `Option<T>` | Maybe a value |
+| `Result<T, E>` | Success or failure |
+| `unsafe` | Opt out of compiler safety checks |
+| `Send` | Safe to move across threads |
+| `Sync` | Safe to share across threads |
+| `Future` | Async computation |
+| `await` | Wait for async completion |
+| `trait object` | Runtime-dispatched type |
+| `macro` | Generates code |
+| `RAII` | Resource release on scope end |
+| `monomorphization` | Generic specialization at compile time |
+| `zero-cost abstraction` | High-level code without overhead |
 
 ---
 
