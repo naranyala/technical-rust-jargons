@@ -217,6 +217,32 @@ Rust allows safe aliasing only under strict rules:
 
 This gives Rust a strong safety story without a garbage collector.
 
+### Lifetime elision
+
+Many functions do not require explicit lifetime annotations because Rust applies a shorthand rule set called lifetime elision.
+
+For example, the compiler can often infer:
+
+```rust
+fn first_word(s: &str) -> &str {
+    s.split_whitespace().next().unwrap_or("")
+}
+```
+
+The compiler knows how to infer common patterns without you spelling out `'a` every time.
+
+This is a common Rust phrase you will hear: “Rust often elides lifetimes in simple cases.”
+
+### Static lifetime
+
+`'static` means the reference is valid for the entire lifetime of the program.
+
+```rust
+let s: &'static str = "hello";
+```
+
+This is common for string literals and global data.
+
 ---
 
 ## Types and data modeling
@@ -268,6 +294,16 @@ let mut v = vec![1, 2, 3];
 v.push(4);
 ```
 
+### Box<T>
+
+`Box<T>` is a heap-allocated value with a single owner.
+
+```rust
+let x = Box::new(42);
+```
+
+It is often used when you want ownership on the heap or when working with recursive types.
+
 ### Structs
 
 Structs model data grouped into named fields.
@@ -301,6 +337,24 @@ Tuples can combine values of different types.
 ```rust
 let pair = (10, "hello");
 let (x, y) = pair;
+```
+
+### Unit type
+
+`()` is the unit type. It represents “nothing” when there is no meaningful value.
+
+```rust
+fn do_nothing() {}
+```
+
+### Never type
+
+`!` is the never type, meaning the function never returns.
+
+```rust
+fn exit() -> ! {
+    panic!("fatal");
+}
 ```
 
 ### Option<T>
@@ -370,7 +424,7 @@ fn print_debug<T: std::fmt::Debug>(value: T) {
 
 ### Associated types
 
-Associated types let traits define one type that the implementer must provide.
+Associated types let traits define one type the implementer must provide.
 
 ```rust
 trait Iterator {
@@ -390,6 +444,41 @@ fn print_value(v: &dyn std::fmt::Display) {
 ```
 
 This is a form of dynamic polymorphism.
+
+### `Default`, `From`, `Into`
+
+These are important Rust conventions.
+
+- `Default` means a value can be created with defaults.
+- `From` creates one type from another.
+- `Into` is the inverse conversion direction.
+
+```rust
+let s = String::from("hello");
+let v: Vec<_> = s.into_bytes();
+```
+
+### `AsRef` and `AsMut`
+
+These traits let you borrow a type as another type without consuming it.
+
+```rust
+fn print_path<P: AsRef<std::path::Path>>(p: P) {
+    println!("{:?}", p.as_ref());
+}
+```
+
+### `PhantomData`
+
+`PhantomData<T>` tells the compiler a type logically contains `T` even though it does not store it at runtime.
+
+It is often used in marker types and safe abstractions around raw pointers.
+
+### `Cow`
+
+`Cow` stands for “clone on write.” It is a type that can hold either an owned or borrowed value, and may clone lazily when mutation is needed.
+
+This is a real-world Rust idiom for performance-sensitive APIs.
 
 ---
 
@@ -414,6 +503,28 @@ Useful when you care only about one pattern.
 ```rust
 if let Some(x) = maybe_value {
     println!("{}", x);
+}
+```
+
+### `let else`
+
+`let else` is a pattern that handles the “otherwise” branch directly.
+
+```rust
+let Some(value) = maybe_value else {
+    return;
+};
+```
+
+This is a common modern Rust idiom for early exit.
+
+### `matches!`
+
+`matches!` checks whether a value matches a pattern.
+
+```rust
+if matches!(value, Some(42)) {
+    println!("found 42");
 }
 ```
 
@@ -449,6 +560,17 @@ println!("{}", add_one(5));
 ```
 
 Closures are heavily used in iterator chains and functional-style Rust.
+
+### Destructuring
+
+Rust supports destructuring in variables, matches, and patterns.
+
+```rust
+let point = (10, 20);
+let (x, y) = point;
+```
+
+This is part of the “pattern matching as a core concept” mindset in Rust.
 
 ---
 
@@ -489,6 +611,12 @@ fn read_file() -> Result<String, std::io::Error> {
 
 This is one of the most common idioms in Rust.
 
+### `Result` and `Option` as design language
+
+Rust uses them not just to represent values, but to shape APIs.
+
+This is a huge difference from languages that often use exceptions or nulls as hidden control flow.
+
 ### `unsafe`
 
 `unsafe` tells the compiler to trust that the invariants are valid.
@@ -524,6 +652,22 @@ These bypass normal borrow rules and are only allowed in `unsafe` code.
 FFI means Foreign Function Interface. Rust can call C code and expose Rust functions to other languages through ABI boundaries.
 
 This is one of the major use cases for `unsafe`.
+
+### `extern "C"`
+
+This indicates a foreign ABI interface for FFI or interop.
+
+```rust
+extern "C" {
+    fn puts(s: *const i8);
+}
+```
+
+### `repr(C)`
+
+`#[repr(C)]` tells Rust to lay out a struct in the same way as C does.
+
+This is important for FFI and binary compatibility.
 
 ---
 
@@ -572,6 +716,14 @@ let m = Mutex::new(5);
 
 They protect shared mutable state.
 
+### `RefCell`
+
+`RefCell<T>` gives interior mutability for single-threaded code.
+
+It enforces borrow rules dynamically rather than statically.
+
+This is a common Rust concept but it is not the normal path for thread-safe design.
+
 ### `Future` and `await`
 
 A `Future` represents an asynchronous computation.
@@ -607,6 +759,12 @@ Pinning ensures a value cannot be moved while it is being polled.
 
 This matters for async state machines and self-referential data.
 
+### Polling model
+
+Async Rust is based on a polling model. A future is polled repeatedly until it is ready.
+
+This is a key conceptual phrase in async Rust.
+
 ---
 
 ## Rust idioms and conventions
@@ -641,6 +799,31 @@ Use slices for views; use vectors for owning dynamic collections.
 
 This is core Rust design philosophy.
 
+### Prefer small focused functions
+
+Rust idioms often value simple, explicit functions over large complex blocks.
+
+### Use `Debug` and `Display` deliberately
+
+- `Debug` for debugging output
+- `Display` for user-facing formatting
+
+These are common trait-related jargon terms.
+
+### Embrace expression-oriented code
+
+Rust functions often return values from expressions rather than imperative “procedure-like” blocks.
+
+Example:
+
+```rust
+fn bigger(a: i32, b: i32) -> i32 {
+    if a > b { a } else { b }
+}
+```
+
+This is a frequent Rust aphorism: “Rust is expression-based.”
+
 ---
 
 ## Common beginner gotchas
@@ -669,6 +852,125 @@ Because Rust encodes absence and failure in the type system.
 
 Because low-level correctness often requires escaping compiler checks intentionally.
 
+### “Why does the compiler complain about borrowing?”
+
+Because multiple references or mutation patterns are invalid under safe aliasing rules.
+
+### “Why do people say Rust is explicit?”
+
+Because the type system is making intent visible: ownership, mutability, error handling, and value semantics are all explicit.
+
+---
+
+## Missing-but-common Rust jargon
+
+These are phrases you often hear in Rust discussions and reviews.
+
+### RAII
+
+Resource Acquisition Is Initialization.
+
+Rust’s ownership + drop system is a practical implementation of RAII: values acquire resources when they are created and release them when dropped.
+
+### Monomorphization
+
+Generics are compiled into specialized code for each concrete type used.
+
+This is part of why idiomatic Rust can be fast while still staying generic.
+
+### Zero-cost abstraction
+
+Rust aims to provide high-level abstractions without runtime overhead.
+
+This is a major cultural value in the language.
+
+### Borrowing is not ownership
+
+A borrow is temporary access. It does not transfer responsibility.
+
+This distinction is fundamental.
+
+### `mut` is not just “variable is mutable”
+
+It communicates a safety contract. Mutation is explicit and often restricted through borrowing rules.
+
+### `where` clauses
+
+A readability and expressiveness tool for constraints on generics.
+
+```rust
+fn foo<T>(value: T)
+where
+    T: Clone,
+{
+    let _ = value.clone();
+}
+```
+
+### `Self`
+
+`Self` refers to the type implementing a trait or method.
+
+### `&self` vs `self` vs `&mut self`
+
+These are core method syntax terms:
+
+- `&self` — borrow immutably
+- `&mut self` — borrow mutably
+- `self` — take ownership of the receiver
+
+### method syntax and receiver types
+
+Rust method calls are not just sugar; they encode ownership and borrowing semantics.
+
+### `#[must_use]`
+
+This attribute warns when the result of a function should not be ignored.
+
+### `#[non_exhaustive]`
+
+This means external code cannot match exhaustively against a type or enum outside the crate.
+
+### `#[derive(...)]`
+
+A common macro pattern used to auto-implement traits like `Debug`, `Clone`, and `PartialEq`.
+
+### `std::mem::take`
+
+A common utility that replaces a value with a default, often used in place mutation.
+
+### `std::mem::replace`
+
+Like take, but explicit replacement of a value with another value.
+
+### `as_ref` / `as_mut`
+
+Used for converting owned or borrowed values into borrowed forms without consuming them.
+
+### `match` ergonomics and patterns
+
+Rust’s strength comes from pattern matching being first-class: `if let`, `match`, `while let`, destructuring, and `let else` all work together.
+
+---
+
+## Rust phrases heard in code reviews
+
+These are common phrases in real-world Rust discussion.
+
+- “This is a lifetime problem.”
+- “This value is moved here; you need a borrow or clone.”
+- “This should be `&str`, not `String`.”
+- “This could be simplified with `match`.”
+- “This should probably be `Result`, not `unwrap`.”
+- “This is a `Send`/`Sync` concern.”
+- “This should be behind a small `unsafe` boundary.”
+- “This API is too eager to clone; consider borrowing.”
+- “This type should implement `Default` or `From`.”
+- “This function should return `Option` or `Result`, not `panic!`.”
+- “This is a borrow-checker complaint, not a logic issue.”
+
+These phrases are part of the language of Rust communication.
+
 ---
 
 ## Glossary cheat sheet
@@ -692,6 +994,10 @@ Because low-level correctness often requires escaping compiler checks intentiona
 - `unreachable!` — assert that a path cannot happen
 - `panic!` — unrecoverable failure
 - `unsafe` — bypass compiler safety checks with responsibility
+- `RAII` — resource acquisition is initialization
+- `zerocost abstraction` — no runtime overhead from abstraction
+- `trait object` — runtime dynamic dispatch via `dyn Trait`
+- `monomorphization` — generic specialization at compile time
 
 ---
 
